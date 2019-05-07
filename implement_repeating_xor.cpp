@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <string>
 
@@ -18,14 +17,14 @@ void encrypt(string & msg, string & cipher) {
 
 int main(void)
 {
-	string msg("Burning 'em, if you ain't quick and nimble I go crazy when I hear a cymbal");
-	string cipher;
+    string msg("Burning 'em, if you ain't quick and nimble I go crazy when I hear a cymbal");
+    string cipher;
 
-	encrypt(msg, cipher);
+    encrypt(msg, cipher);
 
-	for(uint i = 0; i < cipher.size(); ++i) {
-		cout << cipher[i];
-	}
+    for(uint i = 0; i < cipher.size(); ++i) {
+	cout << cipher[i];
+    }
 	
-	return 0;
+    return 0;
 }
