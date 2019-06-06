@@ -1,9 +1,10 @@
+
 #include <iostream>
 #include <vector>
 
 using namespace std;
 
-typedef block_t block[4][4];
+typedef uint8_t state_t[4][4];
 // The lookup-tables are marked const so they can be placed in read-only storage instead of RAM
 // The numbers below can be computed dynamically trading ROM for RAM - 
 // This can be useful in (embedded) bootloader applications, where ROM is often limited.
@@ -26,27 +27,215 @@ static const uint8_t sbox[256] = {
   0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf,
   0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16 };
 
-void byteSub(block_t & block) {
+static const uint32_t rcon[11] = { 0xbeef, 0x01000000, 0x02000000, 0x04000000, 0x08000000, 0x10000000,
+                                  0x20000000, 0x40000000, 0x80000000, 0x1b000000, 0x36000000 };
+
+void byteSub(state_t & block) {
     uint8_t i = 0, j = 0;
+
     for (i = 0; i < 4; i++) {
-        for (j = 0; j < 4; j++) {
-          	block[i][j] = sbox[block[i][j]];
+        for (j = 0; j < 4; j++)
+            block[i][j] = sbox[block[i][j]];
+    }
+    return;
+}
+
+void shiftRows(state_t & block) {
+
+    //row 1
+    swap(block[0][1], block[1][1]);
+    swap(block[1][1], block[2][1]);
+    swap(block[2][1], block[3][1]);
+
+    //row 2
+    swap(block[0][2], block[2][2]);
+    swap(block[1][2], block[3][2]);
+    
+    //row 3
+    swap(block[0][3], block[1][3]);
+    swap(block[2][3], block[3][3]);
+    swap(block[1][3], block[3][3]);
+    return;
+  }
+
+void addRoundKey(state_t & data, uint8_t* key) {
+	for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            data[i][j] = data[i][j] ^ key[i*4 + j];
         }
+    }
+
+	return;
+}
+
+/* key sechdule*/
+void rotWord(uint32_t* w) {
+    uint32_t tmp = 0;
+
+	tmp = (((*w) & 0xff000000) >> 24) |
+          (((*w) & 0x00ff0000) << 8) |
+          (((*w) & 0x0000ff00) << 8) |
+          (((*w) & 0x000000ff) << 8);
+
+    (*w) = tmp;
+    return;
+}
+
+void subWord(uint8_t* bytes) {
+	bytes[0] = sbox[bytes[0]];
+	bytes[1] = sbox[bytes[1]];
+	bytes[2] = sbox[bytes[2]];
+	bytes[3] = sbox[bytes[3]];
+	return;
+}
+
+#define KEY_LEN  (4)
+#define ROUNDS   (11)
+
+void KeyExpansion(uint32_t* init_key,  uint32_t* round_keys) {
+    uint32_t temp;
+    uint32_t i = 0;
+
+    while (i < KEY_LEN) {
+       round_keys[i] = init_key[i];
+       i++;
+    }
+
+    for (i = 4; i < 44; ++i) {
+        temp = round_keys[i-1];
+        if (i % KEY_LEN == 0) {
+            rotWord(&temp);
+            cout << "rotword:" << hex << temp << endl;
+            subWord((uint8_t*)&temp);
+            cout << "subword:" << hex << temp << endl;
+            temp = temp ^ rcon[i/KEY_LEN];
+            cout << "rcon:" << hex << temp << endl;
+        }
+        round_keys[i] = round_keys[i-KEY_LEN] ^ temp;
+        cout << "round:" << hex << round_keys[i] << endl;
+    }
+
+    return;
+}
+
+static uint8_t xtime(uint8_t x)
+{
+  return ((x<<1) ^ (((x>>7) & 1) * 0x1b));
+}
+
+// MixColumns function mixes the columns of the state matrix
+static void MixColumns(state_t & state)
+{
+    uint8_t i;
+    uint8_t Tmp, Tm, t;
+    for (i = 0; i < 4; ++i)
+    {  
+        t   = state[i][0];
+        Tmp = state[i][0] ^ state[i][1] ^ state[i][2] ^ state[i][3] ;
+        Tm  = state[i][0] ^ state[i][1] ; Tm = xtime(Tm);  state[i][0] ^= Tm ^ Tmp ;
+        Tm  = state[i][1] ^ state[i][2] ; Tm = xtime(Tm);  state[i][1] ^= Tm ^ Tmp ;
+        Tm  = state[i][2] ^ state[i][3] ; Tm = xtime(Tm);  state[i][2] ^= Tm ^ Tmp ;
+        Tm  = state[i][3] ^ t ;              Tm = xtime(Tm);  state[i][3] ^= Tm ^ Tmp ;
     }
 }
 
-void shiftRow(block_t & block) {
-    //row 1
-    swap(block[1][0],block[1][1]);
-    swap(block[1][2],block[1][3]);
-    swap(block[1][1],block[1][3]);
-      
-    //row 2
-    swap(block[2][0],block[2][2]);
-    swap(block[2][1],block[2][3]);
+void Cipher(uint8_t* in, uint8_t* out, uint32_t* round_key) {
+
+    state_t state;
+
+    for (int i = 0; i < 4; ++i) {
+        for(int j = 0; j < 4; ++j) {
+            state[i][j] = in[i + j*4];
+        }
+    }
+        
+
+    addRoundKey(state, (uint8_t*)round_key);
+
+    for (int i = 0; i < 4; ++i) {
+		cout << hex << state[i] << endl;
+	}
     
-    //row 3
-    swap(block[3][0],block[3][3]);
-    swap(block[3][1],block[3][2]);
-    swap(block[3][1],block[3][3]);
-  }
+    cout << "step 0" << endl;
+    for (int i = 0; i < 4; ++i) {
+        cout << hex << state[i*4] << state[i*4 + 1] << state[i*4 + 2] << state[i*4 + 3] << endl;
+    }
+
+    for (int i = 1; i < 10; ++i) {
+  
+        byteSub(state);
+        cout << "step 1" << endl;
+        for (int i = 0; i < 4; ++i) {
+            cout << hex << state[i*4] << state[i*4 + 1] << state[i*4 + 2] << state[i*4 + 3] << endl;
+        }
+
+        shiftRows(state);
+        cout << "step 2" << endl;
+        for (int i = 0; i < 4; ++i) {
+            cout << hex << state[i*4] << state[i*4 + 1] << state[i*4 + 2] << state[i*4 + 3] << endl;
+        }
+
+        MixColumns(state);
+        cout << "step 3" << endl;
+        for (int i = 0; i < 4; ++i) {
+            cout << hex << state[i*4] << state[i*4 + 1] << state[i*4 + 2] << state[i*4 + 3] << endl;
+        }
+
+        addRoundKey(state, (uint8_t*)(round_key + i*4));
+        cout << "step 4" << endl;
+        for (int i = 0; i < 4; ++i) {
+            cout << hex << state[i*4] << state[i*4 + 1] << state[i*4 + 2] << state[i*4 + 3] << endl;
+        }
+
+    }
+
+    byteSub(state);
+
+    shiftRows(state);
+
+    addRoundKey(state, (uint8_t*)(round_key + 40));
+
+    for (int i = 0; i < 4; ++i) {
+        for(int j = 0; j < 4; ++j) {
+            out[i*4 + j] = state[i][j];
+        }
+    }
+
+    return;
+}
+
+int main(void) {
+	uint32_t init_key[4] = {0x2b7e1516, 0x28aed2a6, 0xabf71588, 0x09cf4f3c};
+    uint8_t in[16] = {0x32,0x43,0xf6,0xa8,0x88,0x5a,0x30,0x8d,0x31,0x31,0x98,0xa2,0xe0,0x37,0x07,0x34};
+    uint8_t out[16];
+	uint32_t round_keys[11][4];
+
+	for (int i = 0; i < 11; ++i) {
+		for (int j = 0; j < 4; ++j)
+		    round_keys[i][j] = 0;
+	}
+
+    //shiftRows(init_key);
+    //for (int i = 0; i < 4; ++i) {
+    //    cout << hex << init_key[i] << endl;
+    //}
+
+	KeyExpansion(&init_key[0], (uint32_t*)round_keys);
+
+	for (int i = 0; i < 11; ++i) {
+        cout << "key:" << i << "--------" << endl;
+		for (int j = 0; j < 4; ++j)
+		    cout << hex
+            << ((round_keys[i][j] >> 24) & 0xff)
+            << ((round_keys[i][j] >> 16) & 0xff)
+            << ((round_keys[i][j] >> 8) & 0xff)
+            << (round_keys[i][j] & 0xff) << endl;
+	}
+	
+  Cipher(in, out, (uint32_t*)round_keys);
+
+	for (int i = 0; i < 4; ++i) {
+		cout << hex << out[i] << endl;
+	}
+	return 0;
+}
