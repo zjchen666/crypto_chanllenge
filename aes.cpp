@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <vector>
 
@@ -37,34 +36,62 @@ void byteSub(state_t & block) {
         for (j = 0; j < 4; j++)
             block[i][j] = sbox[block[i][j]];
     }
+
+    printf("after %s\n", __func__);
+    for (int i = 0; i < 4; ++i) {
+        printf("0x%x\n", *(uint32_t*)block[i]);
+	}
+
     return;
 }
 
 void shiftRows(state_t & block) {
+    //row 0 do nothing
 
     //row 1
-    swap(block[0][1], block[1][1]);
-    swap(block[1][1], block[2][1]);
-    swap(block[2][1], block[3][1]);
+    swap(block[1][0], block[1][1]);
+    swap(block[1][1], block[1][2]);
+    swap(block[1][2], block[1][3]);
 
     //row 2
-    swap(block[0][2], block[2][2]);
-    swap(block[1][2], block[3][2]);
+    swap(block[2][0], block[2][2]);
+    swap(block[2][1], block[2][3]);
     
     //row 3
-    swap(block[0][3], block[1][3]);
-    swap(block[2][3], block[3][3]);
-    swap(block[1][3], block[3][3]);
+    swap(block[3][0], block[3][3]);
+    swap(block[3][1], block[3][3]);
+    swap(block[3][2], block[3][3]);
+
+    printf("after %s\n", __func__);
+    for (int i = 0; i < 4; ++i) {
+        printf("0x%x\n", *(uint32_t*)block[i]);
+	}
+
     return;
   }
 
-void addRoundKey(state_t & data, uint8_t* key) {
-	for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < 4; j++) {
-            data[i][j] = data[i][j] ^ key[i*4 + j];
+void addRoundKey(state_t & data, uint32_t* key) {
+
+    printf("round key value\n");
+
+    for (int i = 0; i < 4; ++i) {
+        printf("0x%x\n", *((uint32_t*)key + i));
+	}
+
+	for (int j = 0; j < 4; j++) {
+        for (int i = 0; i < 4; i++) {
+            uint32_t tmp = *(key + j);
+            tmp = tmp >> (8*(3 - i));
+            tmp = tmp & 0xff;
+            data[i][j] = data[i][j] ^ tmp;
         }
     }
 
+    printf("after AddRoundKey\n");
+    
+    for (int i = 0; i < 4; ++i) {
+        printf("0x%x\n", *(uint32_t*)data[i]);
+	}
 	return;
 }
 
@@ -105,19 +132,19 @@ void KeyExpansion(uint32_t* init_key,  uint32_t* round_keys) {
         temp = round_keys[i-1];
         if (i % KEY_LEN == 0) {
             rotWord(&temp);
-            cout << "rotword:" << hex << temp << endl;
+            //cout << "rotword:" << hex << temp << endl;
             subWord((uint8_t*)&temp);
-            cout << "subword:" << hex << temp << endl;
+            //cout << "subword:" << hex << temp << endl;
             temp = temp ^ rcon[i/KEY_LEN];
-            cout << "rcon:" << hex << temp << endl;
+            //cout << "rcon:" << hex << temp << endl;
         }
         round_keys[i] = round_keys[i-KEY_LEN] ^ temp;
-        cout << "round:" << hex << round_keys[i] << endl;
+        //cout << "round:" << hex << round_keys[i] << endl;
     }
 
     return;
 }
-
+#if 0
 static uint8_t xtime(uint8_t x)
 {
   return ((x<<1) ^ (((x>>7) & 1) * 0x1b));
@@ -138,7 +165,54 @@ static void MixColumns(state_t & state)
         Tm  = state[i][3] ^ t ;              Tm = xtime(Tm);  state[i][3] ^= Tm ^ Tmp ;
     }
 }
+#else
 
+void gmix_column(unsigned char *r) {
+    unsigned char a[4];
+    unsigned char b[4];
+    unsigned char c;
+    unsigned char h;
+    /* The array 'a' is simply a copy of the input array 'r'
+     * The array 'b' is each element of the array 'a' multiplied by 2
+     * in Rijndael's Galois field
+     * a[n] ^ b[n] is element n multiplied by 3 in Rijndael's Galois field */ 
+    for (c = 0; c < 4; c++) {
+        a[c] = r[c];
+        /* h is 0xff if the high bit of r[c] is set, 0 otherwise */
+        h = (unsigned char)((signed char)r[c] >> 7); /* arithmetic right shift, thus shifting in either zeros or ones */
+        b[c] = r[c] << 1; /* implicitly removes high bit because b[c] is an 8-bit char, so we xor by 0x1b and not 0x11b in the next line */
+        b[c] ^= 0x1B & h; /* Rijndael's Galois field */
+    }
+    r[0] = b[0] ^ a[3] ^ a[2] ^ b[1] ^ a[1]; /* 2 * a0 + a3 + a2 + 3 * a1 */
+    r[1] = b[1] ^ a[0] ^ a[3] ^ b[2] ^ a[2]; /* 2 * a1 + a0 + a3 + 3 * a2 */
+    r[2] = b[2] ^ a[1] ^ a[0] ^ b[3] ^ a[3]; /* 2 * a2 + a1 + a0 + 3 * a3 */
+    r[3] = b[3] ^ a[2] ^ a[1] ^ b[0] ^ a[0]; /* 2 * a3 + a2 + a1 + 3 * a0 */
+}
+
+static void MixColumns(state_t & state)
+{
+    uint8_t tmp[4];
+    
+    for (int i = 0; i < 4; ++i)
+    {  
+        tmp[0] = state[0][i];
+        tmp[1] = state[1][i];
+        tmp[2] = state[2][i];
+        tmp[3] = state[3][i];
+        gmix_column(&tmp[0]);
+        state[0][i] = tmp[0];
+        state[1][i] = tmp[1];
+        state[2][i] = tmp[2];
+        state[3][i] = tmp[3];
+    }
+
+    printf("after %s\n", __func__);
+    for (int i = 0; i < 4; ++i) {
+        printf("0x%x\n", *(uint32_t*)state[i]);
+	}
+
+}
+#endif
 void Cipher(uint8_t* in, uint8_t* out, uint32_t* round_key) {
 
     state_t state;
@@ -148,56 +222,37 @@ void Cipher(uint8_t* in, uint8_t* out, uint32_t* round_key) {
             state[i][j] = in[i + j*4];
         }
     }
-        
-
-    addRoundKey(state, (uint8_t*)round_key);
+    cout << " ===== round 0 ===== " << endl;
 
     for (int i = 0; i < 4; ++i) {
-		cout << hex << state[i] << endl;
+        printf("0x%x\n", *(uint32_t*)state[i]);
 	}
-    
-    cout << "step 0" << endl;
-    for (int i = 0; i < 4; ++i) {
-        cout << hex << state[i*4] << state[i*4 + 1] << state[i*4 + 2] << state[i*4 + 3] << endl;
-    }
+
+    addRoundKey(state, round_key);
 
     for (int i = 1; i < 10; ++i) {
-  
+        printf(" ====== Round %d =======\n", i);
+
         byteSub(state);
-        cout << "step 1" << endl;
-        for (int i = 0; i < 4; ++i) {
-            cout << hex << state[i*4] << state[i*4 + 1] << state[i*4 + 2] << state[i*4 + 3] << endl;
-        }
 
         shiftRows(state);
-        cout << "step 2" << endl;
-        for (int i = 0; i < 4; ++i) {
-            cout << hex << state[i*4] << state[i*4 + 1] << state[i*4 + 2] << state[i*4 + 3] << endl;
-        }
 
         MixColumns(state);
-        cout << "step 3" << endl;
-        for (int i = 0; i < 4; ++i) {
-            cout << hex << state[i*4] << state[i*4 + 1] << state[i*4 + 2] << state[i*4 + 3] << endl;
-        }
 
-        addRoundKey(state, (uint8_t*)(round_key + i*4));
-        cout << "step 4" << endl;
-        for (int i = 0; i < 4; ++i) {
-            cout << hex << state[i*4] << state[i*4 + 1] << state[i*4 + 2] << state[i*4 + 3] << endl;
-        }
-
+        addRoundKey(state, round_key + i*4);
     }
+    
+    cout << "===== round 10 =====" << endl;
 
     byteSub(state);
 
     shiftRows(state);
 
-    addRoundKey(state, (uint8_t*)(round_key + 40));
+    addRoundKey(state, (round_key + 40));
 
-    for (int i = 0; i < 4; ++i) {
-        for(int j = 0; j < 4; ++j) {
-            out[i*4 + j] = state[i][j];
+    for (int j = 0; j < 4; ++j) {
+        for(int i = 0; i < 4; ++i) {
+            out[j*4 + i] = state[i][j];
         }
     }
 
@@ -205,21 +260,18 @@ void Cipher(uint8_t* in, uint8_t* out, uint32_t* round_key) {
 }
 
 int main(void) {
-	uint32_t init_key[4] = {0x2b7e1516, 0x28aed2a6, 0xabf71588, 0x09cf4f3c};
+    uint32_t init_key[4] = {0x2b7e1516, 0x28aed2a6, 0xabf71588, 0x09cf4f3c};
     uint8_t in[16] = {0x32,0x43,0xf6,0xa8,0x88,0x5a,0x30,0x8d,0x31,0x31,0x98,0xa2,0xe0,0x37,0x07,0x34};
     uint8_t out[16];
-	uint32_t round_keys[11][4];
+    uint32_t round_keys[11][4];
 
+    // init
 	for (int i = 0; i < 11; ++i) {
 		for (int j = 0; j < 4; ++j)
 		    round_keys[i][j] = 0;
 	}
 
-    //shiftRows(init_key);
-    //for (int i = 0; i < 4; ++i) {
-    //    cout << hex << init_key[i] << endl;
-    //}
-
+    // key Expansion
 	KeyExpansion(&init_key[0], (uint32_t*)round_keys);
 
 	for (int i = 0; i < 11; ++i) {
@@ -232,10 +284,13 @@ int main(void) {
             << (round_keys[i][j] & 0xff) << endl;
 	}
 	
-  Cipher(in, out, (uint32_t*)round_keys);
+    // AES Cipher
+    Cipher(in, out, (uint32_t*)round_keys);
 
-	for (int i = 0; i < 4; ++i) {
-		cout << hex << out[i] << endl;
+    cout << " ==== output ==== " << endl;
+	for (int i = 0; i < 16; ++i) {
+		printf("0x%x\n", out[i]);
 	}
+
 	return 0;
 }
