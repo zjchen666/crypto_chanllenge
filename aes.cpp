@@ -266,18 +266,18 @@ int main(void) {
     uint32_t round_keys[11][4];
 
     // init
-	for (int i = 0; i < 11; ++i) {
-		for (int j = 0; j < 4; ++j)
-		    round_keys[i][j] = 0;
-	}
+    for (int i = 0; i < 11; ++i) {
+	for (int j = 0; j < 4; ++j)
+	    round_keys[i][j] = 0;
+    }
 
     // key Expansion
-	KeyExpansion(&init_key[0], (uint32_t*)round_keys);
+    KeyExpansion(&init_key[0], (uint32_t*)round_keys);
 
-	for (int i = 0; i < 11; ++i) {
-        cout << "key:" << i << "--------" << endl;
-		for (int j = 0; j < 4; ++j)
-		    cout << hex
+    for (int i = 0; i < 11; ++i) {
+         cout << "key:" << i << "--------" << endl;
+	 for (int j = 0; j < 4; ++j)
+	    cout << hex
             << ((round_keys[i][j] >> 24) & 0xff)
             << ((round_keys[i][j] >> 16) & 0xff)
             << ((round_keys[i][j] >> 8) & 0xff)
@@ -288,9 +288,9 @@ int main(void) {
     Cipher(in, out, (uint32_t*)round_keys);
 
     cout << " ==== output ==== " << endl;
-	for (int i = 0; i < 16; ++i) {
-		printf("0x%x\n", out[i]);
-	}
+    for (int i = 0; i < 16; ++i) {
+	printf("0x%x\n", out[i]);
+    }
 
-	return 0;
+    return 0;
 }
